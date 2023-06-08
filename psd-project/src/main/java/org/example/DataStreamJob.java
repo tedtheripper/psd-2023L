@@ -36,9 +36,7 @@ import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.Collector;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.OptionalDouble;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.DoubleStream;
 
@@ -72,6 +70,28 @@ public class DataStreamJob {
 				.flatMap(new RichFlatMapFunction<RateOfReturn, PossibleDropAlarm>() {
 					private transient MapState<String, List<RateOfReturn>> mapState;
 
+					private transient Map<String, Double> averageRef = new HashMap<String, Double>() {{
+						put("A", 0.0004356);
+						put("B", -0.0001445);
+						put("C", -0.0007732);
+						put("D", -0.0007882);
+						put("E", 0.000249);
+					}};
+					private transient Map<String, Double> quantileRef = new HashMap<String, Double>() {{
+						put("A", -0.0799804);
+						put("B", -0.0800384);
+						put("C", -0.0800072);
+						put("D", -0.0799892);
+						put("E", -0.0799709);
+					}};
+					private transient Map<String, Double> avgSmallest10Percent = new HashMap<String, Double>() {{
+						put("A", -0.0900045);
+						put("B", -0.0900022);
+						put("C", -0.0900292);
+						put("D", -0.0900108);
+						put("E", -0.0899973);
+					}};
+
 					@Override
 					public void open(Configuration parameters) throws Exception {
 						MapStateDescriptor<String, List<RateOfReturn>> descriptor = new MapStateDescriptor<>(
@@ -80,14 +100,35 @@ public class DataStreamJob {
 								TypeInformation.of(new TypeHint<List<RateOfReturn>>() {})
 						);
 						mapState = getRuntimeContext().getMapState(descriptor);
+						averageRef = new HashMap<String, Double>() {{
+							put("A", 0.0004356);
+							put("B", -0.0001445);
+							put("C", -0.0007732);
+							put("D", -0.0007882);
+							put("E", 0.000249);
+						}};
+						quantileRef = new HashMap<String, Double>() {{
+							put("A", -0.0799804);
+							put("B", -0.0800384);
+							put("C", -0.0800072);
+							put("D", -0.0799892);
+							put("E", -0.0799709);
+						}};
+						avgSmallest10Percent = new HashMap<String, Double>() {{
+							put("A", -0.0900045);
+							put("B", -0.0900022);
+							put("C", -0.0900292);
+							put("D", -0.0900108);
+							put("E", -0.0899973);
+						}};
 					}
 
 					@Override
 					public void flatMap(RateOfReturn rateOfReturn, Collector<PossibleDropAlarm> collector) throws Exception {
 						String key = rateOfReturn.investmentName;
-						Double refAverage = 0.0;
-						Double refQuantile = 0.0;
-						Double refAverageSmallest10Percent = 0.0;
+						Double refAverage = averageRef.get(key);
+						Double refQuantile = quantileRef.get(key);
+						Double refAverageSmallest10Percent = avgSmallest10Percent.get(key);
 
 						List<RateOfReturn> currentList = mapState.get(key);
 						if (currentList == null) {
@@ -113,16 +154,19 @@ public class DataStreamJob {
 							double avgSmallest10PercentOverrun = avgOfSmallest10Percent.isPresent() ? DataStreamJob.getOverrun(avgOfSmallest10Percent.getAsDouble(), refAverageSmallest10Percent) : 0.0;
 
 							double overrunThreshold = 0.01;
-							PossibleDropAlarm alarm = null;
+							PossibleDropAlarm alarm;
 							if (averageOverrun > overrunThreshold) {
-								alarm = new PossibleDropAlarm(key, "average");
+								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "average");
 							} else if (quantileOverrun > overrunThreshold) {
-								alarm = new PossibleDropAlarm(key, "quantile10");
+								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "quantile10");
 							} else if (avgSmallest10PercentOverrun > overrunThreshold) {
-								alarm = new PossibleDropAlarm(key, "avgSmallest10Percent");
+								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "avgSmallest10Percent");
 							} else {
-								alarm = new PossibleDropAlarm(key, "");
+								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "");
 							}
+							collector.collect(alarm);
+						} else {
+							PossibleDropAlarm alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "");
 							collector.collect(alarm);
 						}
 						mapState.put(key, currentList);
