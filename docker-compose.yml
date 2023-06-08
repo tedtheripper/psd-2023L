@@ -1,0 +1,35 @@
+version: '3.5'
+services:
+
+  kafka:
+    image: bitnami/kafka:3.3
+    ports:
+      - 9094:9094
+    volumes:
+      - kafka:/bitnami/kafka
+    environment:
+      BITNAMI_DEBUG: true
+      ALLOW_PLAINTEXT_LISTENER: yes
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    ports:
+      - 9000:9000
+    environment:
+      KAFKA_BROKERCONNECT: kafka:9092
+      JVM_OPTS: "-Xms16M -Xmx48M -Xss180K -XX:-TieredCompilation -XX:+UseStringDeduplication -noverify"
+    depends_on:
+      - kafka
+  # flink:
+  #   image: flink:latest
+  #   ports:
+  #     - "8081:8081"  # Expose Flink Web UI on host port 8081
+  #   volumes:
+  #     - ./job:/job  # Mount job directory into the container
+  #   command: jobmanager
+
+volumes:
+  kafka:
