@@ -21,6 +21,8 @@ package org.example;
 import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
+import org.apache.flink.api.common.state.ListState;
+import org.apache.flink.api.common.state.ListStateDescriptor;
 import org.apache.flink.api.common.state.MapState;
 import org.apache.flink.api.common.state.MapStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
@@ -68,38 +70,19 @@ public class DataStreamJob {
 
 		stream.keyBy(value -> value.investmentName)
 				.flatMap(new RichFlatMapFunction<RateOfReturn, PossibleDropAlarm>() {
-					private transient MapState<String, List<RateOfReturn>> mapState;
+					private transient ListState<RateOfReturn> mapState;
 
-					private transient Map<String, Double> averageRef = new HashMap<String, Double>() {{
-						put("A", 0.0004356);
-						put("B", -0.0001445);
-						put("C", -0.0007732);
-						put("D", -0.0007882);
-						put("E", 0.000249);
-					}};
-					private transient Map<String, Double> quantileRef = new HashMap<String, Double>() {{
-						put("A", -0.0799804);
-						put("B", -0.0800384);
-						put("C", -0.0800072);
-						put("D", -0.0799892);
-						put("E", -0.0799709);
-					}};
-					private transient Map<String, Double> avgSmallest10Percent = new HashMap<String, Double>() {{
-						put("A", -0.0900045);
-						put("B", -0.0900022);
-						put("C", -0.0900292);
-						put("D", -0.0900108);
-						put("E", -0.0899973);
-					}};
+					private transient Map<String, Double> averageRef;
+					private transient Map<String, Double> quantileRef;
+					private transient Map<String, Double> avgSmallest10Percent;
 
 					@Override
 					public void open(Configuration parameters) throws Exception {
-						MapStateDescriptor<String, List<RateOfReturn>> descriptor = new MapStateDescriptor<>(
+						ListStateDescriptor<RateOfReturn> descriptor = new ListStateDescriptor<>(
 								"myMapState",
-								TypeInformation.of(String.class),
-								TypeInformation.of(new TypeHint<List<RateOfReturn>>() {})
+								RateOfReturn.class
 						);
-						mapState = getRuntimeContext().getMapState(descriptor);
+						mapState = getRuntimeContext().getListState(descriptor);
 						averageRef = new HashMap<String, Double>() {{
 							put("A", 0.0004356);
 							put("B", -0.0001445);
@@ -126,18 +109,20 @@ public class DataStreamJob {
 					@Override
 					public void flatMap(RateOfReturn rateOfReturn, Collector<PossibleDropAlarm> collector) throws Exception {
 						String key = rateOfReturn.investmentName;
+						System.out.println("Checking: " + key);
 						Double refAverage = averageRef.get(key);
 						Double refQuantile = quantileRef.get(key);
 						Double refAverageSmallest10Percent = avgSmallest10Percent.get(key);
 
-						List<RateOfReturn> currentList = mapState.get(key);
-						if (currentList == null) {
-							currentList = new ArrayList<>();
+						List<RateOfReturn> currentList = new ArrayList<>();
+						for (RateOfReturn r : mapState.get()) {
+							currentList.add(r);
 						}
 
 						currentList.add(rateOfReturn);
+						System.out.println("Size for key: " + key + " : " + currentList.size());
 						if (currentList.size() > 30) {
-							currentList.subList(currentList.size() - 30, currentList.size());
+							currentList = currentList.subList(currentList.size() - 30, currentList.size());
 							List<Double> values = currentList.stream().map(rate -> rate.rate).flatMapToDouble(DoubleStream::of).boxed().collect(Collectors.toList());
 							List<Double> sortedValues = values.stream().sorted().collect(Collectors.toList());
 
@@ -157,19 +142,23 @@ public class DataStreamJob {
 							PossibleDropAlarm alarm;
 							if (averageOverrun > overrunThreshold) {
 								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "average");
+								System.out.println("Alarm: " + key + " stat: average");
 							} else if (quantileOverrun > overrunThreshold) {
 								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "quantile10");
+								System.out.println("Alarm: " + key + " stat: quantile10");
 							} else if (avgSmallest10PercentOverrun > overrunThreshold) {
 								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "avgSmallest10Percent");
+								System.out.println("Alarm: " + key + " stat: avgSmallest10Percent");
 							} else {
 								alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "");
 							}
 							collector.collect(alarm);
 						} else {
+
 							PossibleDropAlarm alarm = new PossibleDropAlarm(key, rateOfReturn.timestamp, "");
 							collector.collect(alarm);
 						}
-						mapState.put(key, currentList);
+						mapState.update(currentList);
 					}
 				}).filter((FilterFunction<PossibleDropAlarm>) possibleDropAlarm -> !possibleDropAlarm.droppedStatName.equals(""))
 				.sinkTo(sink);

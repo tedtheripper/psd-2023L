@@ -25,21 +25,22 @@ plt.margins(x=0, y=0)
 # fig.suptitle('Wykres')
 
 def generate_plot():
+    all_times = [datetime.fromtimestamp(t) for ts in timestamps.values() for t in ts]
+    all_times = [t.replace(second=0) for t in all_times]
+
+    min_time = min(all_times)
+    max_time = max(all_times)
+    time_series = []
+    time_point = min_time
+    while time_point <= max_time:
+        time_series.append(time_point)
+        time_point += timedelta(minutes=1)
     for i, key in enumerate(timestamps.keys()):
         ts = timestamps[key]
-        times = [datetime.strptime(str(datetime.fromtimestamp(t)), "%Y-%m-%d %H:%M:%S").replace(second=0) for t in ts]
-        
+        times = [datetime.fromtimestamp(t) for t in ts]
+        times = [t.replace(second=0) for t in times]
+
         counts = Counter(times)
-        if len(times) == 0:
-            continue
-        
-        min_time = min(times)
-        max_time = max(times)
-        time_series = []
-        time_point = min_time
-        while time_point <= max_time:
-            time_series.append(time_point)
-            time_point += timedelta(seconds=15)
         
         count_series = [counts[time_point] for time_point in time_series]
 

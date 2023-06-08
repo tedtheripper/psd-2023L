@@ -37,7 +37,7 @@ def produce_rates(thread_id: int, investment_parameters: InvestmentParameters):
         generated_rate = generate_rate_of_return(investment_parameters)
         send_to_kafka(producer, generated_rate)
         print(f"Sent new rate for {generated_rate.investment_name} investment | {generated_rate.value}")
-        time_to_sleep = np.random.randint(1, 10)
+        time_to_sleep = np.random.randint(1, 5)
         time.sleep(time_to_sleep)
 
 
